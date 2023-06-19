@@ -352,15 +352,7 @@ def loadVega():
     jumpJudge = JumpJump()
 
 
-if __name__ == "__main__":
-    signal.signal(signal.SIGINT, exit_)
-    signal.signal(signal.SIGTERM, exit_)
-    LOG_FORMAT = "%(levelname)s %(asctime)s | %(module)s:%(lineno)d  %(message)s"
-    DATE_FORMAT = "%m-%d-%Y.%H:%M:%S.%p"
-    logging.basicConfig(level=logging.INFO, format=LOG_FORMAT)
-    
-    loadVega()
-    
+def run():
     # start websocket server
     server = threading.Thread(target=ws.newServer, args=('0.0.0.0', 9527))
     server.daemon = True
@@ -371,21 +363,12 @@ if __name__ == "__main__":
     dgmulticam.setThreshold(1)
     dgmulticam.start()
     
-    # write frame to video
-    #out = cv2.VideoWriter("/workspace/data/out_jump.mp4", cv2.VideoWriter_fourcc('H', '2', '6', '4'), 30.0, (1920, 1080))
-    
-    # video data source
-    #capL = cv2.VideoCapture("resources/case3.mp4")
-    #assert capL.isOpened()
-    #retL, frameL = capL.read()
-    #print(frameL.shape)
     frameIndex = 0
     normal = 0
 
     while True:
         if exitFlag:
             break
-        #retL, frameL = capL.read()
         frameIndex += 1
         frames = dgmulticam.capture()
         if frameIndex % 3 != 0:
@@ -413,11 +396,94 @@ if __name__ == "__main__":
 
         if pose3dList_Ray3D is None:
             pose3dList_Ray3D = []
-        
-        
-    #dgmulticam.stop()
-    #dgmulticam.clear()
+
+    dgmulticam.stop()
+    dgmulticam.clear()
     ws.stop()
     time.sleep(1)
     server.join()
-    #out.release()
+
+
+def debug():
+    # start websocket server
+    server = threading.Thread(target=ws.newServer, args=('0.0.0.0', 9527))
+    server.daemon = True
+    server.start()
+    
+    # write frame to video
+    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+    out = cv2.VideoWriter("resources/out.mp4", fourcc, 30.0, (1920 + 540, 1080))
+    
+    # video data source
+    capL = cv2.VideoCapture("resources/case1.mp4")
+    assert capL.isOpened()
+    retL, frameL = capL.read()
+    #print(frameL.shape)
+    frameIndex = 1
+    while retL:
+        if exitFlag:
+            break
+        if frameIndex % 10 == 0:
+            print(frameIndex)
+        timestamp = int(arrow.utcnow().float_timestamp * 1000)
+        det2dPoseDic, pose3dList_Ray3D, outFrame = humanPose3DDetector.inference(frameL)
+        squat_state, jump_state, direction_angle, L_angle, L_hip_v, R_angle, R_hip_v, squat_threshold = jumpJudge.infer(pose3dList_Ray3D, frameIndex)
+        pushTime = int(arrow.utcnow().float_timestamp * 1000)
+        #print(f'infer cost: {pushTime-timestamp}')
+        # infer_result = []
+        # for k, v in det2dPoseDic.items():
+        #     points = []
+        #     for number in range(0, len(v[0])):
+        #         x = v[0, number].astype(np.int32)
+        #         y = v[1, number].astype(np.int32)
+        #         points.append({'x': int(x), 'y': int(y)})
+        #     infer_result.append({'frameId': frameIndex, "timestamp": timestamp, "pushTime": pushTime, "id": k, "squat": squat_state, "jump": jump_state, "directionAngle": direction_angle, "points": points})
+        # if len(infer_result) > 0:
+        #     ws.send_message(infer_result)
+
+        if pose3dList_Ray3D is None:
+            pose3dList_Ray3D = []
+        ## draw 3DPose
+        fig = plt.figure(figsize=(5.4, 5.4))
+        fig.add_subplot(projection='3d', adjustable='box')
+        fig = plot_pose3d_m(pose3dList_Ray3D, fig, "Ray3D", 2, withDirection=True)
+        plt.tight_layout()
+        ax = fig.gca()
+        ax.view_init(elev=67, azim=-90)
+        fig.canvas.draw()
+        image_3d3_front_ray3d = np.fromstring(fig.canvas.tostring_rgb(), dtype=np.uint8, sep='')
+        image_3d3_front_ray3d = image_3d3_front_ray3d.reshape(fig.canvas.get_width_height()[::-1] + (3, ))
+        
+        ax = fig.gca()
+        ax.view_init(elev=8, azim=-90)
+        fig.canvas.draw()
+        image_3d3_side_ray3d = np.fromstring(fig.canvas.tostring_rgb(), dtype=np.uint8, sep='')
+        image_3d3_side_ray3d = image_3d3_side_ray3d.reshape(fig.canvas.get_width_height()[::-1] + (3, ))
+        plt.close(fig)
+        image_3d3_ray3d = np.concatenate((image_3d3_side_ray3d, image_3d3_front_ray3d), axis=0)
+        img_concat_pose3d = np.concatenate((frameL, image_3d3_ray3d), axis=1)
+        out.write(img_concat_pose3d)
+        
+        # read next frame
+        retL, frameL = capL.read()
+        frameIndex += 1
+        
+    print('debug over')
+    ws.stop()
+    time.sleep(1)
+    server.join()
+    out.release()
+
+
+if __name__ == "__main__":
+    signal.signal(signal.SIGINT, exit_)
+    signal.signal(signal.SIGTERM, exit_)
+    LOG_FORMAT = "%(levelname)s %(asctime)s | %(module)s:%(lineno)d  %(message)s"
+    DATE_FORMAT = "%m-%d-%Y.%H:%M:%S.%p"
+    logging.basicConfig(level=logging.INFO, format=LOG_FORMAT)
+    
+    loadVega()
+    # start jump judge
+    # run()
+    
+    debug()

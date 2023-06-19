@@ -2,8 +2,8 @@ import json
 import cv2
 import numpy as np
 
-IMG_W = 2688
-IMG_H = 1520
+IMG_W = 1920
+IMG_H = 1080
 
 class BinoCamera:
     def __init__(self, camParamFile) -> None:

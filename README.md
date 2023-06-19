@@ -14,7 +14,7 @@ python jump.py
 ## 模型依赖
 [PersonDetAISports](http://model.dginternal.com/#/model2/detail/1214)
 
-[HumanPose](http://192.168.2.132/#/model2/detail/1151)
+[HumanPose](http://model.dginternal.com/#/model2/detail/1151)
 
 [RayThreeD](http://model.dginternal.com/#/model2/detail/723)
 
