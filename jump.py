@@ -10,7 +10,6 @@ import math
 from libs.one_euro_filter import OneEuroFilter
 from libs.LandmarksSmoothingFilter import LandmarksSmoothingFilter
 import time
-import matplotlib
 from packaging import version
 import logging
 import libs.vega_launcher as launcher
@@ -20,7 +19,6 @@ from libs.ray_3d import Ray3D
 from ws import Websocket
 import threading
 import signal
-from datetime import datetime
 import dgmulticam
 import arrow
 
@@ -221,7 +219,7 @@ class Pose3DInference:
 
         detPoseList = {}
         if len(keypoint_2d_dic_ori) < 1:
-            return detPoseList, None, image_draw
+            return detPoseList, None
         
         trackIdList, pose3d = self.anatomyModel.extract_keypoints3d(keypoint_2d_dic_smooth, self.idx_frame)
         pose3dAll = np.array(pose3d).reshape(-1,3).T
@@ -235,7 +233,7 @@ class Pose3DInference:
         pose3dAll_vis = np.concatenate([pose3d_ground,np.ones((pose3d_ground.shape[0],1,24))],axis=1)
         for trackid in trackIdList:
             detPoseList[trackID] = keypoint_2d_dic_ori[trackid][0].transpose()
-        return detPoseList, pose3dAll_vis, image_draw
+        return detPoseList, pose3dAll_vis, trackIdList[0]
 
     def vis_keypoints(self, img, kps, kps_lines=skeleton, kp_thresh=0.4, alpha=1):
         # Convert from plt 0-1 RGBA colors to 0-255 BGR colors for opencv.
@@ -352,6 +350,7 @@ def loadVega():
     jumpJudge = JumpJump()
 
 
+# push squat, jump event to ws
 def run():
     # start websocket server
     server = threading.Thread(target=ws.newServer, args=('0.0.0.0', 9527))
@@ -376,7 +375,7 @@ def run():
         #print(frames[0].shape)
         frameL = frames[0]["data"]
         timestamp = int(arrow.utcnow().float_timestamp * 1000)
-        det2dPoseDic, pose3dList_Ray3D, outFrame = humanPose3DDetector.inference(frameL)
+        det2dPoseDic, pose3dList_Ray3D, _ = humanPose3DDetector.inference(frameL)
         squat_state, jump_state, direction_angle, L_angle, L_hip_v, R_angle, R_hip_v, squat_threshold = jumpJudge.infer(pose3dList_Ray3D, frameIndex)
         pushTime = int(arrow.utcnow().float_timestamp * 1000)
         print(f'infer cost: {pushTime-timestamp}')
@@ -404,15 +403,11 @@ def run():
     server.join()
 
 
+# draw 3d pose by matplotlib and save it to a video
 def debug():
-    # start websocket server
-    server = threading.Thread(target=ws.newServer, args=('0.0.0.0', 9527))
-    server.daemon = True
-    server.start()
-    
     # write frame to video
     fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-    out = cv2.VideoWriter("resources/out.mp4", fourcc, 30.0, (1920 + 540, 1080))
+    out = cv2.VideoWriter("resources/out.mp4", fourcc, 30.0, (1440, 1440))
     
     # video data source
     capL = cv2.VideoCapture("resources/case1.mp4")
@@ -426,7 +421,7 @@ def debug():
         if frameIndex % 10 == 0:
             print(frameIndex)
         timestamp = int(arrow.utcnow().float_timestamp * 1000)
-        det2dPoseDic, pose3dList_Ray3D, outFrame = humanPose3DDetector.inference(frameL)
+        det2dPoseDic, pose3dList_Ray3D, _ = humanPose3DDetector.inference(frameL)
         squat_state, jump_state, direction_angle, L_angle, L_hip_v, R_angle, R_hip_v, squat_threshold = jumpJudge.infer(pose3dList_Ray3D, frameIndex)
         pushTime = int(arrow.utcnow().float_timestamp * 1000)
         #print(f'infer cost: {pushTime-timestamp}')
@@ -444,15 +439,15 @@ def debug():
         if pose3dList_Ray3D is None:
             pose3dList_Ray3D = []
         ## draw 3DPose
-        fig = plt.figure(figsize=(5.4, 5.4))
+        fig = plt.figure(figsize=(14.4, 14.4))
         fig.add_subplot(projection='3d', adjustable='box')
         fig = plot_pose3d_m(pose3dList_Ray3D, fig, "Ray3D", 2, withDirection=True)
         plt.tight_layout()
-        ax = fig.gca()
-        ax.view_init(elev=67, azim=-90)
-        fig.canvas.draw()
-        image_3d3_front_ray3d = np.fromstring(fig.canvas.tostring_rgb(), dtype=np.uint8, sep='')
-        image_3d3_front_ray3d = image_3d3_front_ray3d.reshape(fig.canvas.get_width_height()[::-1] + (3, ))
+        # ax = fig.gca()
+        # ax.view_init(elev=67, azim=-90)
+        # fig.canvas.draw()
+        # image_3d3_front_ray3d = np.fromstring(fig.canvas.tostring_rgb(), dtype=np.uint8, sep='')
+        # image_3d3_front_ray3d = image_3d3_front_ray3d.reshape(fig.canvas.get_width_height()[::-1] + (3, ))
         
         ax = fig.gca()
         ax.view_init(elev=8, azim=-90)
@@ -460,19 +455,51 @@ def debug():
         image_3d3_side_ray3d = np.fromstring(fig.canvas.tostring_rgb(), dtype=np.uint8, sep='')
         image_3d3_side_ray3d = image_3d3_side_ray3d.reshape(fig.canvas.get_width_height()[::-1] + (3, ))
         plt.close(fig)
-        image_3d3_ray3d = np.concatenate((image_3d3_side_ray3d, image_3d3_front_ray3d), axis=0)
-        img_concat_pose3d = np.concatenate((frameL, image_3d3_ray3d), axis=1)
-        out.write(img_concat_pose3d)
+        #image_3d3_ray3d = np.concatenate((image_3d3_side_ray3d, image_3d3_front_ray3d), axis=1)
+        #img_concat_pose3d = np.concatenate((frameL, image_3d3_ray3d), axis=1)
+        out.write(image_3d3_side_ray3d)
         
         # read next frame
         retL, frameL = capL.read()
         frameIndex += 1
         
+    out.release()
     print('debug over')
+    
+    
+def push_3d_points():
+    # start websocket server
+    server = threading.Thread(target=ws.newServer, args=('0.0.0.0', 9527))
+    server.daemon = True
+    server.start()
+    
+    # video data source
+    capL = cv2.VideoCapture("resources/case3.mp4")
+    assert capL.isOpened()
+    retL, frameL = capL.read()
+    frameIndex = 1
+    while retL:
+        if exitFlag:
+            break
+        if frameIndex % 10 == 0:
+            print(frameIndex)
+        _, pose3dList_Ray3D, id = humanPose3DDetector.inference(frameL)
+        if pose3dList_Ray3D is not None:
+            squat_state, jump_state, direction_angle, L_angle, L_hip_v, R_angle, R_hip_v, squat_threshold = jumpJudge.infer(pose3dList_Ray3D, frameIndex)
+            infer_result = []
+            
+            infer_result.append({'frameId': frameIndex, "id": id, "squat": squat_state, "jump": jump_state, "directionAngle": direction_angle, "points": pose3dList_Ray3D.tolist()})
+            if len(infer_result) > 0:
+                ws.send_message(infer_result)
+
+        # read next frame
+        retL, frameL = capL.read()
+        frameIndex += 1
+        
+    print('push over')
     ws.stop()
     time.sleep(1)
-    server.join()
-    out.release()
+    # server.join()
 
 
 if __name__ == "__main__":
@@ -486,4 +513,5 @@ if __name__ == "__main__":
     # start jump judge
     # run()
     
-    debug()
+    # detect humanpose --> extract 2d pose --> 3dpose --> push to ws
+    push_3d_points()

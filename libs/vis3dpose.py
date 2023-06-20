@@ -80,11 +80,11 @@ def plot_pose3d_m(poselist,fig, title="", pointType=1, withDirection=False):
         
     ax = fig.gca()
     
-    ax.set_xlim(-5, 5)
+    ax.set_xlim(-2, 2)
     if withDirection:
-        ax.set_ylim(0, 10)
+        ax.set_ylim(0, 4)
     else:
-        ax.set_ylim(-5, 5)
+        ax.set_ylim(-2, 2)
     ax.set_zlim(0,2)
     ax.set_aspect("equal")
     
